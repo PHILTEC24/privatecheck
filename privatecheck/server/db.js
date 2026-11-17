@@ -1,17 +1,38 @@
-const fs = require('fs');
-const path = require('path');
-const FILE = path.join(__dirname, 'data', 'assessments.json');
-const ensure = () => fs.existsSync(path.dirname(FILE)) || fs.mkdirSync(path.dirname(FILE), { recursive: true });
-const read = () => { try { return JSON.parse(fs.readFileSync(FILE, 'utf8')); } catch { return []; } };
-const write = rows => { ensure(); fs.writeFileSync(FILE, JSON.stringify(rows)); };
+const { Pool } = require('pg');
 
-exports.record = (level, codes) => {
-  const rows = read();
-  rows.push({ level, codes, ts: new Date().toISOString() });
-  write(rows);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+});
+
+let ready = false;
+
+async function init() {
+  if (ready) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS assessments (
+      id         SERIAL PRIMARY KEY,
+      level      TEXT NOT NULL,
+      codes      TEXT[] NOT NULL DEFAULT '{}',
+      ts         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  ready = true;
+}
+
+exports.record = async (level, codes) => {
+  await init();
+  await pool.query(
+    'INSERT INTO assessments (level, codes) VALUES ($1, $2)',
+    [level, codes]
+  );
 };
-exports.stats = () => {
-  const rows = read();
+
+exports.stats = async () => {
+  await init();
+  const { rows } = await pool.query(`
+    SELECT level, codes FROM assessments
+  `);
   const byLevel = { low: 0, moderate: 0, urgent: 0 };
   const byCode = {};
   for (const r of rows) {

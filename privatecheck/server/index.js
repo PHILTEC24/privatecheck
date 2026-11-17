@@ -11,14 +11,24 @@ app.use(express.json({ limit: '32kb' }));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
-app.post('/api/assess', (req, res) => {
+app.post('/api/assess', async (req, res) => {
   const answers = (req.body && req.body.answers) || {};
   const result = assess(answers);
-  db.record(result.level, [...result.redFlags, ...result.moderateFlags].map(f => f.code));
+  try {
+    await db.record(result.level, [...result.redFlags, ...result.moderateFlags].map(f => f.code));
+  } catch (e) {
+    console.error('DB write failed:', e.message);
+  }
   res.json(result);
 });
 
-app.get('/api/stats', (_req, res) => res.json(db.stats()));
+app.get('/api/stats', async (_req, res) => {
+  try {
+    res.json(await db.stats());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.get('/api/validation', (_req, res) => {
   const rows = PROFILES.map(p => {
